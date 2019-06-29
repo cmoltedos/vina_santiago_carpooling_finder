@@ -1,16 +1,19 @@
 #!/user/bin/env python3
 import os
+import getpass
+import pickle
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import time
-import winsound
+if os.name == 'nt':
+	import winsound
 
-
-EXE_FOLDER = 'E:/Dropbox/Apps/'
+EXE_FOLDER = 'lib/'
+DATA_FOLDER = 'data/'
 GROUPS_IDS = {
 	'147488415316365': 'VINA/STGO',
 	'1418690655032512': 'Santiago - Vina',
@@ -60,7 +63,7 @@ def reverse_readline(filename, buf_size=8192):
 
 def get_cache(group_id, last_n_post=10):
 	cache_dict = dict()
-	filename = '{folder}cache_fb.csv'.format(folder=EXE_FOLDER)
+	filename = '{folder}cache_fb.csv'.format(folder=DATA_FOLDER)
 	if not os.path.exists(filename):
 		return cache_dict
 	for line in reverse_readline(filename):
@@ -76,7 +79,7 @@ def get_cache(group_id, last_n_post=10):
 
 def save_cache(group_id, post_dict):
 	line_format = '{utime},{user},{group},{htime},{comment}\n'
-	filename = '{folder}cache_fb.csv'.format(folder=EXE_FOLDER)
+	filename = '{folder}cache_fb.csv'.format(folder=DATA_FOLDER)
 	post_list = sorted(post_dict.items())
 	with open(filename, 'ab') as cache_file:
 		for post in post_list:
@@ -93,23 +96,57 @@ def save_cache(group_id, post_dict):
 
 def login(driver, url, user, password):
 	driver.get(url)
+	try:
+		wait = WebDriverWait(driver, 4).until(
+			EC.visibility_of_element_located((By.XPATH, '//a[@title="Profile"]')))
+		return True
+	except TimeoutException:
+		pass
 	wait = WebDriverWait(driver, 10).until(
 		EC.visibility_of_element_located((By.ID, 'email')))
 	username_element = driver.find_element_by_id('email')
 	username_element.send_keys(user)
 	password_element = driver.find_element_by_id('pass')
 	password_element.send_keys(password)
-	button = driver.find_element_by_xpath('//input[@type="submit"]')
+	try:
+		button = driver.find_element_by_xpath('//input[@type="submit"]')
+	except NoSuchElementException:
+		button = driver.find_element_by_xpath('//button[@type="submit"]')
 	button.click()
+	try:
+		wait = WebDriverWait(driver, 4).until(
+			EC.visibility_of_element_located((By.XPATH, '//a[@title="Profile"]')))
+	except TimeoutException:
+		return False
+	return True
+
+def recharge_cookies(driver):
+	print('[INFO] Recharging cookies')
+	for cookie in pickle.load(open("FBCookies.pkl", "rb")):
+		driver.add_cookie(cookie)
 	return None
 
 
 MEM_CACHE = dict()
 def get_last_n_post(driver, group_id, n_post=10):
 	url = 'https://www.facebook.com/groups/{group_id}/?sorting_setting=CHRONOLOGICAL'
-	driver.get(url.format(group_id=group_id))
-	wait = WebDriverWait(driver, 10).until(
-		EC.visibility_of_element_located((By.XPATH, '//div[@role="feed"]')))
+	final_url = url.format(group_id=group_id)
+	print('Getting: %s' % final_url)
+	driver.get(final_url)
+	#login(driver, final_url, user, password)
+	counter = 0
+	while True:
+		try:
+			wait = WebDriverWait(driver, 10).until(
+				EC.visibility_of_element_located((By.XPATH, '//div[@role="feed"]')))
+			break
+		except TimeoutException:
+			recharge_cookies(driver)
+			driver.get(final_url)
+		counter += 1
+		if counter > 3:
+			raise TimeoutException("Relogin 3 times without success")
+			# driver.current_url
 	time.sleep(1)
 	global MEM_CACHE
 	new_cache_dict = dict()
@@ -117,12 +154,13 @@ def get_last_n_post(driver, group_id, n_post=10):
 		cache_dict = get_cache(group_id)
 		MEM_CACHE[group_id] = cache_dict
 	scroll_all_way_down()
-	driver.get_screenshot_as_file('main-page.png')
+	#driver.get_screenshot_as_file('main-page.png')
 	posts = driver.find_elements_by_css_selector('div[role=article]')
 	print("Number of posts: {n_posts}".format(n_posts=len(posts)))
+	num = 0
 	for num, post in enumerate(posts):
 		try:
-			author = post.find_elements_by_css_selector('a[data-hovercard*=user]')[-1].get_attribute('innerHTML')
+			author = post.find_elements_by_css_selector('a[data-hovercard*=user]')[1].text
 			content = post.find_elements_by_css_selector('div.userContent')[-1].text
 			try:
 				content = post.find_element_by_css_selector('div.mtm').text
@@ -132,11 +170,17 @@ def get_last_n_post(driver, group_id, n_post=10):
 			content = content.replace(',', '.').replace('\n', '.')
 		except IndexError:
 			# actions = ActionChains(driver)
+			# post.get_attribute("outerHTML")
 			# actions.move_to_element(post).perform()
 			# driver.get_screenshot_as_file('main-page_%s.png' % num)
 			continue
-		
-		utimestamp = post.find_elements_by_css_selector('abbr')[-1].get_attribute('data-utime')
+		except:
+			import nose.tools;nose.tools.set_trace()
+
+		try:
+			utimestamp = post.find_elements_by_css_selector('abbr')[-1].get_attribute('data-utime')
+		except IndexError:
+			import nose.tools;nose.tools.set_trace()
 		timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(float(utimestamp)))
 
 		cache_key = (utimestamp, author)
@@ -180,22 +224,41 @@ if '__main__' == __name__:
 	options = webdriver.chrome.options.Options()
 	options.add_argument('headless')
 	options.add_argument('window-size=1200x600')
+	prefs = {"profile.default_content_setting_values.notifications" : 2}
+	options.add_experimental_option("prefs",prefs)
 	driver = webdriver.Chrome(
-		executable_path= '{folder}chromedriver.exe'.format(folder=EXE_FOLDER), 
+		executable_path= '{folder}chromedriver{ext}'.format(
+			folder=EXE_FOLDER, ext='.exe' if os.name == 'nt' else ''),
 		chrome_options=options
 		)
 	#driver.set_window_position(250, 0)
-
-	login(driver, 'https://wwww.facebook.com', os.environ['USER'], os.environ['PASS'])
-	#driver.get_screenshot_as_file('main-page.png')
-	counter = 0
-	while counter < 60:
-		for group_id in GROUPS_IDS:
-			print("Analyzing group {gname}".format(gname=GROUPS_IDS[group_id]))
-			amount = get_last_n_post(driver, group_id, 100)
-			if amount > 0:
-				winsound.Beep(2500, 500)
-		time.sleep(MIN_BETWEEN_QUERY*60)
-		counter += 1
-	input('End...')
-	driver.quit()
+	try:
+		counter = 0
+		login_correct = False
+		while not login_correct:
+			password = getpass.getpass()
+			user = os.environ['USER']
+			login_correct = login(driver, 'https://wwww.facebook.com', user, password)
+			if counter == 0 and not login_correct:
+				print("Login fail, retype your password")
+			elif counter > 3:
+				print("Fail login for 3 times")
+				exit()
+			counter += 1
+		pickle.dump(driver.get_cookies() , open("FBCookies.pkl","wb"))
+		counter = 0
+		while counter < 60:
+			for group_id in GROUPS_IDS:
+				print("Analyzing group {gname}".format(gname=GROUPS_IDS[group_id]))
+				amount = get_last_n_post(driver, group_id, 100)
+				if amount > 0:
+					if os.name == 'nt':
+						winsound.Beep(2500, 500)
+					elif os.name == 'posix':
+						os.system("say 'new trip'")
+			print('[INFO] %s iteration end' % (counter + 1))
+			time.sleep(MIN_BETWEEN_QUERY*60)
+			counter += 1
+		input('End...')
+	finally:
+		driver.quit()
