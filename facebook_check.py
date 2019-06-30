@@ -79,6 +79,7 @@ def get_cache(group_id, last_n_post=10):
 
 def save_cache(group_id, post_dict):
 	line_format = '{utime},{user},{group},{htime},{comment}\n'
+	os.makedirs(DATA_FOLDER, exist_ok=True)
 	filename = '{folder}cache_fb.csv'.format(folder=DATA_FOLDER)
 	post_list = sorted(post_dict.items())
 	with open(filename, 'ab') as cache_file:
