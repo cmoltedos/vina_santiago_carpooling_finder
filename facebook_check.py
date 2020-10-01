@@ -20,7 +20,7 @@ GROUPS_IDS = {
 	'147488415316365': 'VINA/STGO',
 	'1418690655032512': 'Santiago - Vina',
 	'stgovina': 'Viajes stgo-vina',
-	'1661175270772220': 'VINA/STGO 2018'
+	'1661175270772220': 'VINA/STGO 2020'
 }
 MIN_BETWEEN_QUERY = 5
 
@@ -102,7 +102,7 @@ def login(driver, url, user, password):
 	driver.get(url)
 	try:
 		wait = WebDriverWait(driver, 4).until(
-			EC.visibility_of_element_located((By.XPATH, '//a[@title="Profile"]')))
+			EC.visibility_of_element_located((By.XPATH, '//div[@data-pagelet="root"]')))
 		return True
 	except TimeoutException:
 		pass
@@ -119,7 +119,7 @@ def login(driver, url, user, password):
 	button.click()
 	try:
 		wait = WebDriverWait(driver, 4).until(
-			EC.visibility_of_element_located((By.XPATH, '//a[@title="Profile"]')))
+			EC.visibility_of_element_located((By.XPATH, '//div[@data-pagelet="root"]')))
 	except TimeoutException:
 		return False
 	return True
@@ -164,7 +164,7 @@ def get_last_n_post(driver, group_id, n_post=10):
 	num = 0
 	for num, post in enumerate(posts):
 		try:
-			people = post.find_elements_by_css_selector('a[data-hovercard*=user]')[1::2] 
+			people = post.find_elements_by_css_selector('a[href*=user]')[2::2]
 			author = people[0].text
 			content = post.find_elements_by_css_selector('div.userContent')[-1].text
 			link = post.find_elements_by_css_selector('a[href*=permalink]')[0].get_attribute('href')
